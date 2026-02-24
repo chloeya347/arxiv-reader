@@ -1,0 +1,14 @@
+name: paperagent
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - pip
+  - pip:
+      - flask
+      - flask-cors
+      - arxiv-to-prompt
+      - python-dotenv
+      - anthropic
+      - openai

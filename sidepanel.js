@@ -92,8 +92,8 @@ async function checkServer() {
   if (!healthCheck || !healthCheck.ok) {
     showError(
       'Python server not running. Please start it with:\n\n' +
-      'cd /Users/chloeya/CodingProjects/paperagent\n' +
-      'python server.py'
+      'cd <your-paperagent-folder>\n' +
+      './start.sh'
     );
     return false;
   }

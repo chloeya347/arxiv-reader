@@ -238,7 +238,7 @@ def llm_skill():
         if n_tokens > TOKEN_LIMIT:
             raise TokenLimitExceeded(n_tokens)
 
-        provider = get_provider(prompt.get("provider"))
+        provider = get_provider()
         result = provider.complete(system=prompt["system"], user=prompt["user"])
         _write_summary_cache(cache_path, result)
 
@@ -285,7 +285,7 @@ def llm_skill_stream():
         if n_tokens > TOKEN_LIMIT:
             raise TokenLimitExceeded(n_tokens)
 
-        provider = get_provider(prompt.get("provider"))
+        provider = get_provider()
 
         def generate():
             accumulated = []

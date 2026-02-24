@@ -19,6 +19,10 @@ venv/
 .DS_Store
 Thumbs.db
 
+# Cache
+papers/
+summaries/
+
 # Claude Code
 .claude/
 .claudeignore

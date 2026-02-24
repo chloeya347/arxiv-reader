@@ -7,10 +7,12 @@ Usage:
     prompt = get_prompt("summarize", paper_content="...")
 """
 
+import os
+
 _registry: dict[str, dict] = {}
 
 
-def register(name: str, *, builder, description: str = "", system: str | None = None, provider: str | None = None):
+def register(name: str, *, builder, description: str = "", system: str | None = None):
     """Register a prompt skill.
 
     Args:
@@ -19,14 +21,11 @@ def register(name: str, *, builder, description: str = "", system: str | None = 
                  the user message content.
         description: Human-readable description of the skill.
         system: Optional system prompt.
-        provider: Optional LLM provider name (e.g., "anthropic", "qwen").
-                  Falls back to the LLM_PROVIDER env var if not set.
     """
     _registry[name] = {
         "builder": builder,
         "description": description,
         "system": system,
-        "provider": provider,
     }
 
 
@@ -44,10 +43,15 @@ def get_prompt(name: str, **kwargs) -> dict:
 
     entry = _registry[name]
     user_content = entry["builder"](**kwargs)
+    system = entry["system"]
+
+    lang = os.environ.get("LANGUAGE", "").strip()
+    if system and lang and lang.lower() != "english":
+        system += f"\n\nIMPORTANT: You MUST write your entire response in {lang}."
+
     return {
-        "system": entry["system"],
+        "system": system,
         "user": user_content,
-        "provider": entry.get("provider"),
     }
 
 
@@ -62,4 +66,3 @@ def list_skills() -> list[dict]:
 # Auto-import skill modules so they self-register.
 # To add a new skill, create a module and add an import here.
 from prompts import summarize  # noqa: E402, F401
-from prompts import quickread  # noqa: E402, F401

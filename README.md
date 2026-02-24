@@ -1,142 +1,76 @@
 # Paper Agent
 
-A Chrome extension that extracts and processes arXiv papers using LaTeX source code.
+A Chrome extension that summarizes arXiv papers using LaTeX source extraction and Claude.
 
 ## Features
 
-- 🔍 Automatically detects arXiv papers (PDF or abstract pages)
-- 📄 Extracts full LaTeX source using `arxiv-to-prompt`
-- 🎯 Removes comments and appendix sections by default
-- 📋 Copy extracted content to clipboard
-- 🤖 Ready for AI summarization (coming soon)
+- Automatically detects arXiv papers (PDF or abstract pages)
+- Extracts full LaTeX source using `arxiv-to-prompt`
+- Summarizes papers with Claude (streaming)
+- Caches papers and summaries locally
+- Renders markdown with LaTeX math
 
-## How It Works
+## Quick Setup (~5 minutes)
 
-1. **Navigate to an arXiv paper**: Visit `arxiv.org/pdf/{id}` or `arxiv.org/abs/{id}`
-2. **Open the extension**: Click the Paper Agent icon
-3. **Extract**: Click the "Extract Paper" button
-4. **Process**: The extension detects the arXiv ID, sends it to the Python backend, which uses `arxiv-to-prompt` to fetch and process the LaTeX source
+**Prerequisites:** [conda](https://docs.conda.io/en/latest/miniconda.html) and an [Anthropic API key](https://console.anthropic.com/)
 
-## Setup
-
-### 1. Install Python Dependencies
+### 1. Clone and run setup
 
 ```bash
-cd /Users/chloeya/CodingProjects/paperagent
-pip install -r requirements.txt
+git clone <repo-url>
+cd paperagent
+./setup.sh
 ```
 
-### 2. Start the Python Backend
+The script creates a conda environment and prompts you for your API key.
+
+### 2. Start the server
 
 ```bash
-python server.py
+./start.sh
 ```
 
-The server will run on `http://localhost:5000`
+Keep this terminal open while using the extension.
 
-### 3. Load the Chrome Extension
+### 3. Load the Chrome extension (one-time)
 
 1. Open Chrome and go to `chrome://extensions/`
-2. Enable "Developer mode" (top right)
-3. Click "Load unpacked"
-4. Select the `/Users/chloeya/CodingProjects/paperagent` folder
+2. Enable **Developer mode** (top right toggle)
+3. Click **Load unpacked**
+4. Select the `paperagent` folder
 
-### 4. Use the Extension
+### 4. Use it
 
-1. Navigate to an arXiv paper (e.g., `https://arxiv.org/pdf/2303.08774`)
-2. Click the Paper Agent extension icon
-3. Click "Extract Paper"
-4. The LaTeX source will be displayed in the sidebar
+1. Navigate to any arXiv paper (e.g., `https://arxiv.org/abs/2303.08774`)
+2. Click the Paper Agent icon in the toolbar
+3. Click **Summarize Paper**
 
 ## Architecture
 
 ```
-┌─────────────────┐
-│  arXiv Website  │
-│  (PDF/Abstract) │
-└────────┬────────┘
-         │
-         │ (1) User clicks "Extract Paper"
-         ▼
-┌─────────────────┐
-│  Content Script │ ─────┐
-│  (content.js)   │      │ (2) Extract arXiv ID from URL
-└─────────────────┘      │
-                         ▼
-                  ┌─────────────────┐
-                  │  Side Panel     │
-                  │  (sidepanel.js) │
-                  └────────┬────────┘
-                           │
-                           │ (3) Send arXiv ID to backend
-                           ▼
-                  ┌─────────────────┐
-                  │  Python Server  │
-                  │  (server.py)    │
-                  └────────┬────────┘
-                           │
-                           │ (4) Call arxiv-to-prompt
-                           ▼
-                  ┌─────────────────┐
-                  │ arxiv-to-prompt │
-                  │    Package      │
-                  └────────┬────────┘
-                           │
-                           │ (5) Download & process LaTeX
-                           ▼
-                  ┌─────────────────┐
-                  │  LaTeX Source   │
-                  │  (cleaned)      │
-                  └─────────────────┘
-```
-
-## Files
-
-- **manifest.json**: Chrome extension configuration
-- **content.js**: Injected into web pages, detects arXiv URLs
-- **sidepanel.html/js/css**: Extension UI
-- **background.js**: Opens side panel on icon click
-- **server.py**: Flask backend that calls `arxiv-to-prompt`
-- **requirements.txt**: Python dependencies
-
-## API Options
-
-The backend supports these options when processing papers:
-
-```javascript
-{
-  "arxiv_id": "2303.08774",
-  "keep_comments": false,      // Remove LaTeX comments
-  "remove_appendix": true,     // Remove appendix sections
-  "abstract_only": false       // Extract only the abstract
-}
+Chrome Extension (sidepanel.js)
+        │
+        │  HTTP requests to localhost:5000
+        ▼
+Flask Backend (server.py)
+        │
+        ├── arxiv-to-prompt  →  Downloads & processes LaTeX source
+        └── Anthropic API    →  Streams paper summaries
 ```
 
 ## Troubleshooting
 
 ### "Python server not running" error
-- Make sure you started the server with `python server.py`
-- Check that it's running on `http://localhost:5000`
-- Verify the terminal shows "Running on http://127.0.0.1:5000"
+- Make sure you ran `./start.sh` and the terminal is still open
+- Check that it shows "Running on http://127.0.0.1:5000"
 
 ### Extension not detecting arXiv papers
 - Make sure you're on `arxiv.org/pdf/{id}` or `arxiv.org/abs/{id}`
 - Check the browser console for errors (F12 → Console)
 
-### No content extracted
-- Check the Python server terminal for error messages
-- Verify the arXiv ID is valid
-- Try the arXiv ID directly in the server:
-  ```bash
-  curl -X POST http://localhost:5000/process-arxiv \
-    -H "Content-Type: application/json" \
-    -d '{"arxiv_id": "2303.08774"}'
-  ```
-
-## Next Steps
-
-- [ ] Add Claude API integration for summarization
-- [ ] Support local LaTeX files
-- [ ] Add figure extraction
-- [ ] Customize which sections to keep/remove
-- [ ] Export to different formats
+### Test the backend directly
+```bash
+curl -X POST http://localhost:5000/process-arxiv \
+  -H "Content-Type: application/json" \
+  -d '{"arxiv_id": "2303.08774"}'
+```
