@@ -3,11 +3,8 @@
   "name": "Paper Agent",
   "version": "1.0",
   "description": "A sidebar extension",
-  "permissions": ["sidePanel", "activeTab", "scripting", "storage"],
+  "permissions": ["sidePanel", "activeTab", "scripting", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
-  "side_panel": {
-    "default_path": "sidepanel.html"
-  },
   "background": {
     "service_worker": "background.js"
   },
@@ -16,7 +13,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["*://*/*.pdf", "https://arxiv.org/pdf/*", "https://arxiv.org/abs/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
