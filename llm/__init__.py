@@ -7,7 +7,11 @@ from llm.base import BaseLLMProvider
 # Maps config string -> (module_path, class_name)
 _PROVIDERS = {
     "anthropic": ("llm.anthropic_provider", "AnthropicProvider"),
-    "qwen": ("llm.qwen_provider", "QwenProvider"),
+    "openai": ("llm.openai_provider", "OpenAIProvider"),
+    "gemini": ("llm.gemini_provider", "GeminiProvider"),
+    "qwen": ("llm.openai_provider", "QwenProvider"),
+    "kimi": ("llm.openai_provider", "KimiProvider"),
+    "deepseek": ("llm.openai_provider", "DeepSeekProvider"),
 }
 
 _instances: dict[str, BaseLLMProvider] = {}
