@@ -32,8 +32,11 @@ body {
 
 .sidebar-content {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding: 16px;
+  padding-bottom: 16px;
 }
 
 .sidebar-content::-webkit-scrollbar {
@@ -203,12 +206,12 @@ body {
 
 /* LLM Result Area */
 .llm-result {
-  margin-top: 16px;
+  flex: 1;
+  min-height: 0;
   padding: 12px;
   background: #f0f7ff;
   border: 1px solid #cce0ff;
   border-radius: 6px;
-  max-height: 500px;
   overflow-y: auto;
 }
 

@@ -1,18 +1,25 @@
 // sidepanel.js — controls the side panel UI and handles paper extraction
 const SERVER_URL = 'http://127.0.0.1:5000';
 
+// Cached payload ready for summarization (set after auto-download completes)
+let cachedPayload = null;
+
 // Get UI elements
 const contentDiv = document.getElementById('sidebar-content');
 
-// Add extract button
+// Add summarize button (disabled until download finishes)
 const extractButton = document.createElement('button');
 extractButton.className = 'extract-btn';
 extractButton.textContent = 'Summarize Paper';
-extractButton.addEventListener('click', handleExtract);
+extractButton.disabled = true;
+extractButton.addEventListener('click', handleSummarize);
 
 // Add to sidebar
 const header = document.querySelector('.sidebar-header');
 header.appendChild(extractButton);
+
+// Auto-download paper on startup; if a cached summary exists, show that instead
+initPanel();
 
 function setButtonState(text) {
   extractButton.disabled = true;
@@ -20,22 +27,32 @@ function setButtonState(text) {
 }
 
 function resetButton() {
-  extractButton.disabled = false;
+  extractButton.disabled = !cachedPayload;
   extractButton.textContent = 'Summarize Paper';
 }
 
-async function handleExtract() {
-  try {
-    setButtonState('Extracting...');
-    showLoading('Extracting paper content...');
+async function handleSummarize() {
+  if (!cachedPayload) return;
+  await summarize(cachedPayload);
+}
 
-    // Get the current tab
+async function initPanel() {
+  // If we already have a cached summary for this URL, show it immediately
+  const cached = await loadCachedSummary();
+  if (cached) return;
+
+  // Otherwise, start downloading the paper content
+  await autoDownload();
+}
+
+async function autoDownload() {
+  try {
+    showLoading('Downloading paper...');
+
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    // Check if we can access the tab (not chrome:// or extension pages)
     if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
       showError('Cannot extract from Chrome internal pages. Please navigate to a website or arXiv page.');
-      resetButton();
       return;
     }
 
@@ -46,56 +63,52 @@ async function handleExtract() {
         files: ['content.js']
       });
     } catch (e) {
-      // Content script might already be injected, continue
       console.log('Content script injection:', e.message);
     }
 
-    // Wait a moment for content script to initialize
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    // Send message to content script to extract content
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'extract' });
 
     if (response.type === 'arxiv') {
-      await handleArxivPaper(response.arxivId);
+      await downloadArxivPaper(response.arxivId);
     } else if (response.type === 'pdf') {
-      await handlePdfPaper(response.url);
+      await downloadPdfPaper(response.url);
     } else if (response.type === 'text') {
-      await summarize({ paper_content: response.content });
+      cachedPayload = { paper_content: response.content };
+      showReady();
     } else if (response.type === 'error') {
       showError(response.error);
-      resetButton();
     }
 
   } catch (error) {
     console.error('Error extracting:', error);
     showError(`Failed to extract: ${error.message}\n\nMake sure you're on a regular webpage, not a Chrome internal page.`);
-    resetButton();
   }
 }
 
-async function handleArxivPaper(arxivId) {
+async function checkServer() {
+  const healthCheck = await fetch(`${SERVER_URL}/health`).catch(() => null);
+  if (!healthCheck || !healthCheck.ok) {
+    showError(
+      'Python server not running. Please start it with:\n\n' +
+      'cd /Users/chloeya/CodingProjects/paperagent\n' +
+      'python server.py'
+    );
+    return false;
+  }
+  return true;
+}
+
+async function downloadArxivPaper(arxivId) {
   try {
-    showLoading(`Processing arXiv paper ${arxivId}...`);
+    showLoading(`Downloading arXiv paper ${arxivId}...`);
 
-    // Check if server is running
-    const healthCheck = await fetch(`${SERVER_URL}/health`).catch(() => null);
-    if (!healthCheck || !healthCheck.ok) {
-      showError(
-        'Python server not running. Please start it with:\n\n' +
-        'cd /Users/chloeya/CodingProjects/paperagent\n' +
-        'python server.py'
-      );
-      resetButton();
-      return;
-    }
+    if (!await checkServer()) return;
 
-    // Call Python backend to process arXiv paper
     const response = await fetch(`${SERVER_URL}/process-arxiv`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         arxiv_id: arxivId,
         keep_comments: false,
@@ -107,34 +120,23 @@ async function handleArxivPaper(arxivId) {
     const data = await response.json();
 
     if (data.success) {
-      await summarize({ paper_content: data.content });
+      cachedPayload = { paper_content: data.content };
+      showReady();
     } else {
       showError(`Failed to process paper: ${data.error}`);
-      resetButton();
     }
 
   } catch (error) {
     console.error('Error processing arXiv paper:', error);
     showError(`Failed to process arXiv paper: ${error.message}`);
-    resetButton();
   }
 }
 
-async function handlePdfPaper(url) {
+async function downloadPdfPaper(url) {
   try {
     showLoading('Downloading PDF...');
 
-    // Check if server is running
-    const healthCheck = await fetch(`${SERVER_URL}/health`).catch(() => null);
-    if (!healthCheck || !healthCheck.ok) {
-      showError(
-        'Python server not running. Please start it with:\n\n' +
-        'cd /Users/chloeya/CodingProjects/paperagent\n' +
-        'python server.py'
-      );
-      resetButton();
-      return;
-    }
+    if (!await checkServer()) return;
 
     const response = await fetch(`${SERVER_URL}/process-pdf`, {
       method: 'POST',
@@ -145,17 +147,21 @@ async function handlePdfPaper(url) {
     const data = await response.json();
 
     if (data.success) {
-      await summarize({ pdf_cache_key: data.pdf_id });
+      cachedPayload = { pdf_cache_key: data.pdf_id };
+      showReady();
     } else {
       showError(`Failed to download PDF: ${data.error}`);
-      resetButton();
     }
 
   } catch (error) {
     console.error('Error processing PDF:', error);
     showError(`Failed to process PDF: ${error.message}`);
-    resetButton();
   }
+}
+
+function showReady() {
+  extractButton.disabled = false;
+  contentDiv.innerHTML = '<p class="empty-state">Paper downloaded. Click "Summarize Paper" to generate a summary.</p>';
 }
 
 async function summarize(payload) {
@@ -204,6 +210,17 @@ async function summarize(payload) {
       }
     }
 
+    // Cache the summary for this tab
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tab?.url) {
+        const key = getCacheKey(tab.url);
+        await chrome.storage.local.set({ [key]: fullText });
+      }
+    } catch (e) {
+      console.log('Failed to cache summary:', e.message);
+    }
+
     const copyBtn = document.createElement('button');
     copyBtn.className = 'action-btn';
     copyBtn.textContent = 'Copy Summary';
@@ -218,6 +235,50 @@ async function summarize(payload) {
   } finally {
     resetButton();
   }
+}
+
+function getCacheKey(url) {
+  // Normalize arxiv URLs so /abs/ and /pdf/ share the same key
+  const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
+  if (arxivMatch) return `summary:arxiv:${arxivMatch[1]}`;
+  return `summary:${url}`;
+}
+
+async function loadCachedSummary() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.url) return false;
+    const key = getCacheKey(tab.url);
+    const result = await chrome.storage.local.get(key);
+    if (result[key]) {
+      displaySummary(result[key]);
+      return true;
+    }
+  } catch (e) {
+    console.log('Cache check failed:', e.message);
+  }
+  return false;
+}
+
+function displaySummary(text) {
+  const resultDiv = document.createElement('div');
+  resultDiv.id = 'llm-result';
+  resultDiv.className = 'llm-result';
+  resultDiv.innerHTML = '<div class="llm-text"></div>';
+  contentDiv.innerHTML = '';
+  contentDiv.appendChild(resultDiv);
+
+  const mdDiv = resultDiv.querySelector('.llm-text');
+  renderMd(mdDiv, text);
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'action-btn';
+  copyBtn.textContent = 'Copy Summary';
+  copyBtn.addEventListener('click', () => {
+    navigator.clipboard.writeText(text);
+    showNotification('Summary copied to clipboard!');
+  });
+  resultDiv.appendChild(copyBtn);
 }
 
 function showLoading(message) {
