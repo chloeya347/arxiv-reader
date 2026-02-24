@@ -1,9 +1,13 @@
 """Summarize skill: produces a structured, section-by-section paper summary."""
 
+import os
+
 from prompts import register
 
+_LANGUAGE = os.getenv("LANGUAGE", "English")
+
 _SYSTEM_PROMPT = (
-"""
+f"""
 You are a research paper analysis assistant specializing in computer science,
 robotics, and artificial intelligence. You produce clear, concise summaries
 aimed at senior undergraduates and early graduate students. Use field terminology, 
@@ -38,7 +42,7 @@ Format: Markdown.
 ### 3.3 Technical Overview
 - Break into "Stages." For each:
 - **Heading — Name:** 2-3 sentences on mechanism.
-- Include key equations using LaTeX (e.g., $L = \mathbb{E}[\log D(G(z))]$).
+- Include key equations using LaTeX (e.g., $L = \mathbb{{E}}[\log D(G(z))]$).
 - Explain symbols inline. One sentence on the optimization goal.
 
 ## 4. Comparison & Results
@@ -53,6 +57,7 @@ Format: Markdown.
 - Use LaTeX only for complex formulas.
 - No "filler" phrases (e.g., "The authors conclude...").
 - Adhere strictly to the "Stage" format in 3.2.
+- You MUST write your ENTIRE response in {_LANGUAGE}.
 )
 """)
 
@@ -91,5 +96,4 @@ register(
     builder=_build,
     description="Structured section-by-section summary of a research paper",
     system=_SYSTEM_PROMPT,
-    provider="anthropic",
 )
