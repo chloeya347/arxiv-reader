@@ -215,7 +215,7 @@ async function summarize(payload) {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.url) {
         const key = getCacheKey(tab.url);
-        await chrome.storage.local.set({ [key]: fullText });
+        await cacheSummary(key, fullText);
       }
     } catch (e) {
       console.log('Failed to cache summary:', e.message);
@@ -242,6 +242,31 @@ function getCacheKey(url) {
   const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
   if (arxivMatch) return `summary:arxiv:${arxivMatch[1]}`;
   return `summary:${url}`;
+}
+
+const CACHE_MAX = 10;
+const CACHE_INDEX_KEY = '_summary_cache_index';
+
+async function cacheSummary(key, text) {
+  // Load the index of cached keys with timestamps
+  const result = await chrome.storage.local.get(CACHE_INDEX_KEY);
+  const index = result[CACHE_INDEX_KEY] || [];
+
+  // Remove existing entry for this key (so we can re-add it as most recent)
+  const filtered = index.filter(entry => entry.key !== key);
+
+  // If at the limit, remove the oldest entry
+  while (filtered.length >= CACHE_MAX) {
+    const oldest = filtered.shift();
+    await chrome.storage.local.remove(oldest.key);
+  }
+
+  filtered.push({ key, ts: Date.now() });
+
+  await chrome.storage.local.set({
+    [key]: text,
+    [CACHE_INDEX_KEY]: filtered,
+  });
 }
 
 async function loadCachedSummary() {
