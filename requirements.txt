@@ -3,3 +3,5 @@ flask-cors
 arxiv-to-prompt
 python-dotenv
 anthropic
+openai
+dotenv

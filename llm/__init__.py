@@ -7,32 +7,36 @@ from llm.base import BaseLLMProvider
 # Maps config string -> (module_path, class_name)
 _PROVIDERS = {
     "anthropic": ("llm.anthropic_provider", "AnthropicProvider"),
-    # "openai": ("llm.openai_provider", "OpenAIProvider"),
+    "qwen": ("llm.qwen_provider", "QwenProvider"),
 }
 
-_instance: BaseLLMProvider | None = None
+_instances: dict[str, BaseLLMProvider] = {}
 
 
-def get_provider() -> BaseLLMProvider:
-    """Return a singleton LLM provider based on the LLM_PROVIDER env var.
+def get_provider(name: str | None = None) -> BaseLLMProvider:
+    """Return a cached LLM provider by name.
 
-    Lazily instantiated on first call.
+    If ``name`` is None, falls back to the LLM_PROVIDER env var (default: "anthropic").
+    Providers are lazily instantiated and cached per name.
     """
-    global _instance
-    if _instance is not None:
-        return _instance
+    if name is None:
+        name = os.environ.get("LLM_PROVIDER", "anthropic").lower()
+    else:
+        name = name.lower()
 
-    provider_name = os.environ.get("LLM_PROVIDER", "anthropic").lower()
-    if provider_name not in _PROVIDERS:
+    if name in _instances:
+        return _instances[name]
+
+    if name not in _PROVIDERS:
         available = ", ".join(sorted(_PROVIDERS.keys()))
         raise RuntimeError(
-            f"Unknown LLM_PROVIDER '{provider_name}'. Available: {available}"
+            f"Unknown LLM provider '{name}'. Available: {available}"
         )
 
     import importlib
 
-    module_path, class_name = _PROVIDERS[provider_name]
+    module_path, class_name = _PROVIDERS[name]
     module = importlib.import_module(module_path)
     cls = getattr(module, class_name)
-    _instance = cls()
-    return _instance
+    _instances[name] = cls()
+    return _instances[name]

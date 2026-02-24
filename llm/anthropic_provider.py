@@ -18,7 +18,7 @@ class AnthropicProvider(BaseLLMProvider):
                 "ANTHROPIC_API_KEY not set. Add it to your .env file."
             )
         self.client = anthropic.Anthropic(api_key=api_key)
-        self.model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
+        self.model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
         self.max_tokens = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "4096"))
 
     def _build_kwargs(self, *, system: str | None, user: UserContent) -> dict:

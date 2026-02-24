@@ -20,13 +20,16 @@ from arxiv_to_prompt import process_latex_source
 
 from prompts import get_prompt, list_skills
 from llm import get_provider
+from llm.base import count_tokens, TokenLimitExceeded, TOKEN_LIMIT
 
 app = Flask(__name__)
 CORS(app)  # Allow requests from Chrome extension
 
 CACHE_DIR = os.path.expanduser("~/.cache/arxiv-to-prompt")
 PDF_CACHE_DIR = os.path.expanduser("~/.cache/paperagent/pdfs")
+SUMMARY_CACHE_DIR = os.path.expanduser("~/.cache/paperagent/summaries")
 CACHE_MAX_AGE_DAYS = 0.5
+SUMMARY_CACHE_MAX_AGE_DAYS = 30
 
 def clean_old_cache():
     """Delete cached paper folders older than CACHE_MAX_AGE_DAYS days."""
@@ -40,6 +43,38 @@ def clean_old_cache():
                     shutil.rmtree(entry.path, ignore_errors=True)
                 else:
                     os.remove(entry.path)
+
+def _summary_cache_path(skill_name: str, data: dict) -> str | None:
+    """Return the cache file path for a skill + paper combination."""
+    paper_content = data.get("paper_content")
+    pdf_cache_key = data.get("pdf_cache_key")
+    if paper_content:
+        content_id = hashlib.sha256(paper_content.encode()).hexdigest()[:24]
+    elif pdf_cache_key:
+        content_id = pdf_cache_key
+    else:
+        return None
+    key = hashlib.sha256(f"{skill_name}::{content_id}".encode()).hexdigest()[:16]
+    os.makedirs(SUMMARY_CACHE_DIR, exist_ok=True)
+    return os.path.join(SUMMARY_CACHE_DIR, f"{key}.txt")
+
+
+def _read_summary_cache(path: str | None) -> str | None:
+    """Return cached summary if it exists and is within max age, else None."""
+    if not path or not os.path.exists(path):
+        return None
+    if (time.time() - os.path.getmtime(path)) / 86400 > SUMMARY_CACHE_MAX_AGE_DAYS:
+        os.remove(path)
+        return None
+    with open(path) as f:
+        return f.read()
+
+
+def _write_summary_cache(path: str | None, text: str) -> None:
+    if path:
+        with open(path, "w") as f:
+            f.write(text)
+
 
 @app.route('/process-arxiv', methods=['POST'])
 def process_arxiv():
@@ -189,10 +224,23 @@ def llm_skill():
         if not skill_name:
             return jsonify({'success': False, 'error': 'skill is required'}), 400
 
+        cache_path = _summary_cache_path(skill_name, data)
+        cached = _read_summary_cache(cache_path)
+        if cached:
+            return jsonify({'success': True, 'result': cached, 'cached': True})
+
         prompt_kwargs = _resolve_prompt_kwargs(data)
         prompt = get_prompt(skill_name, **prompt_kwargs)
-        provider = get_provider()
+
+        n_tokens = count_tokens(prompt["user"])
+        if prompt.get("system"):
+            n_tokens += count_tokens(prompt["system"])
+        if n_tokens > TOKEN_LIMIT:
+            raise TokenLimitExceeded(n_tokens)
+
+        provider = get_provider(prompt.get("provider"))
         result = provider.complete(system=prompt["system"], user=prompt["user"])
+        _write_summary_cache(cache_path, result)
 
         return jsonify({'success': True, 'result': result})
 
@@ -220,14 +268,32 @@ def llm_skill_stream():
         if not skill_name:
             return jsonify({'success': False, 'error': 'skill is required'}), 400
 
+        cache_path = _summary_cache_path(skill_name, data)
+        cached = _read_summary_cache(cache_path)
+        if cached:
+            def generate_cached():
+                yield f"data: {json.dumps({'chunk': cached})}\n\n"
+                yield f"data: {json.dumps({'done': True, 'cached': True})}\n\n"
+            return Response(generate_cached(), mimetype='text/event-stream')
+
         prompt_kwargs = _resolve_prompt_kwargs(data)
         prompt = get_prompt(skill_name, **prompt_kwargs)
-        provider = get_provider()
+
+        n_tokens = count_tokens(prompt["user"])
+        if prompt.get("system"):
+            n_tokens += count_tokens(prompt["system"])
+        if n_tokens > TOKEN_LIMIT:
+            raise TokenLimitExceeded(n_tokens)
+
+        provider = get_provider(prompt.get("provider"))
 
         def generate():
+            accumulated = []
             try:
                 for chunk in provider.stream(system=prompt["system"], user=prompt["user"]):
+                    accumulated.append(chunk)
                     yield f"data: {json.dumps({'chunk': chunk})}\n\n"
+                _write_summary_cache(cache_path, "".join(accumulated))
                 yield f"data: {json.dumps({'done': True})}\n\n"
             except Exception as e:
                 yield f"data: {json.dumps({'error': str(e)})}\n\n"
