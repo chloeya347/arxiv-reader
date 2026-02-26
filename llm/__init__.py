@@ -17,6 +17,14 @@ _PROVIDERS = {
 _instances: dict[str, BaseLLMProvider] = {}
 
 
+def list_providers() -> list[str]:
+    """Return sorted list of providers that have an API key configured."""
+    return sorted(
+        name for name in _PROVIDERS
+        if os.environ.get(f"{name.upper()}_API_KEY")
+    )
+
+
 def get_provider(name: str | None = None) -> BaseLLMProvider:
     """Return a cached LLM provider by name.
 

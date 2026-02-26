@@ -33,6 +33,31 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self.model = os.environ.get(f"{prefix}_MODEL", self.DEFAULT_MODEL)
         self.max_tokens = int(os.environ.get(f"{prefix}_MAX_TOKENS", "4096"))
 
+    def _convert_content_blocks(self, blocks: list[dict]) -> list[dict]:
+        """Convert Anthropic-style content blocks to OpenAI-compatible format.
+
+        Subclasses can override this to support provider-specific block types.
+        The default implementation keeps only text blocks and raises if none
+        are found.
+        """
+        has_document = any(b.get("type") == "document" for b in blocks)
+        text_parts = [
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        if has_document:
+            raise ValueError(
+                f"{self.DISPLAY_NAME} provider does not support PDF input. "
+                "Switch to the Anthropic or OpenAI provider, or use an arXiv "
+                "link so LaTeX text can be extracted."
+            )
+        if not text_parts:
+            raise ValueError(
+                f"{self.DISPLAY_NAME} provider received empty content blocks."
+            )
+        return [{"type": "text", "text": "\n\n".join(text_parts)}]
+
     def _build_messages(self, *, system: str | None, user: UserContent) -> list[dict]:
         messages = []
         if system:
@@ -41,19 +66,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if isinstance(user, str):
             messages.append({"role": "user", "content": user})
         else:
-            text_parts = [
-                block["text"]
-                for block in user
-                if isinstance(block, dict) and block.get("type") == "text"
-            ]
-            if not text_parts:
-                raise ValueError(
-                    f"{self.DISPLAY_NAME} provider received non-text content blocks "
-                    "(e.g. PDF). PDF input is only supported with the Anthropic or "
-                    "Gemini provider. Try using an arXiv link instead so LaTeX text "
-                    "can be extracted."
-                )
-            messages.append({"role": "user", "content": "\n\n".join(text_parts)})
+            content = self._convert_content_blocks(user)
+            messages.append({"role": "user", "content": content})
 
         return messages
 
@@ -87,6 +101,29 @@ class OpenAIProvider(OpenAICompatibleProvider):
     DEFAULT_BASE_URL = None  # uses the official OpenAI endpoint
     DEFAULT_MODEL = "gpt-5-mini"
     DISPLAY_NAME = "OpenAI"
+
+    def _convert_content_blocks(self, blocks: list[dict]) -> list[dict]:
+        """Convert Anthropic document blocks to OpenAI file blocks."""
+        converted = []
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "text":
+                converted.append({"type": "text", "text": block["text"]})
+            elif block.get("type") == "document":
+                source = block.get("source", {})
+                data = source.get("data", "")
+                media_type = source.get("media_type", "application/pdf")
+                converted.append({
+                    "type": "file",
+                    "file": {
+                        "filename": "paper.pdf",
+                        "file_data": f"data:{media_type};base64,{data}",
+                    },
+                })
+        if not converted:
+            raise ValueError("OpenAI provider received empty content blocks.")
+        return converted
 
 
 class QwenProvider(OpenAICompatibleProvider):
