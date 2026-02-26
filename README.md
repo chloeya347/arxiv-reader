@@ -1,49 +1,110 @@
 # Paper Agent
 
-A Chrome extension that summarizes arXiv papers using LaTeX source extraction and Claude.
+[中文版](README.zh.md)
+
+A Chrome extension that summarizes arXiv papers using LaTeX source extraction and your choice of LLM.
 
 ## Features
 
 - Automatically detects arXiv papers (PDF or abstract pages)
 - Extracts full LaTeX source using `arxiv-to-prompt`
-- Summarizes papers with Claude (streaming)
+- Summarizes papers with streaming LLM output
+- Supports multiple providers: Anthropic, OpenAI, Qwen, Kimi, DeepSeek
 - Caches papers and summaries locally
 - Renders markdown with LaTeX math
 
-## Quick Setup (~5 minutes)
+---
 
-**Prerequisites:** [conda](https://docs.conda.io/en/latest/miniconda.html) and an [Anthropic API key](https://console.anthropic.com/)
+## Onboarding (~5 minutes)
 
-### 1. Clone and run setup
+### Prerequisites
+
+- **[conda](https://docs.conda.io/en/latest/miniconda.html)** — for the Python environment
+- **Chrome** (or any Chromium-based browser — Arc, Brave, Edge, etc.)
+- **An API key** for at least one supported LLM provider:
+  - [Anthropic](https://console.anthropic.com/) (Claude)
+  - [OpenAI](https://platform.openai.com/api-keys) (GPT-4o)
+  - [DashScope](https://dashscope.aliyun.com/) (Qwen)
+  - [Moonshot AI](https://platform.moonshot.cn/) (Kimi)
+  - [DeepSeek](https://platform.deepseek.com/) (DeepSeek)
+
+---
+
+### Step 1 — Clone the repo
 
 ```bash
 git clone <repo-url>
 cd paperagent
+```
+
+---
+
+### Step 2 — Run setup
+
+```bash
 ./setup.sh
 ```
 
-The script creates a conda environment and prompts you for your API key.
+The interactive script will:
 
-### 2. Start the server
+1. Create a `paperagent` conda environment from `environment.yml`
+2. Ask which LLM provider(s) you want to use and prompt for your API key(s)
+3. Set your preferred output language for summaries (default: English)
+4. Write everything to a `.env` file
+
+You can configure multiple providers — the first one you enter becomes the default. To switch providers later, edit `.env` and change `LLM_PROVIDER=`.
+
+---
+
+### Step 3 — Start the backend server
 
 ```bash
 ./start.sh
 ```
 
-Keep this terminal open while using the extension.
+You should see:
 
-### 3. Load the Chrome extension (one-time)
+```
+* Running on http://127.0.0.1:5000
+```
 
-1. Open Chrome and go to `chrome://extensions/`
-2. Enable **Developer mode** (top right toggle)
+Keep this terminal open while using the extension. The server handles paper fetching, LLM calls, and caching.
+
+---
+
+### Step 4 — Load the extension in Chrome (one-time)
+
+1. Open Chrome and navigate to **`chrome://extensions/`**
+2. Toggle **Developer mode** on — the switch is in the **top-right corner**
 3. Click **Load unpacked**
-4. Select the `paperagent` folder
+4. In the file picker, select the **`paperagent` folder** (the root of this repo)
+5. The **Paper Agent** extension will appear in the list with its icon
 
-### 4. Use it
+> **Tip:** Pin the extension for easy access — click the puzzle-piece icon in the Chrome toolbar, find Paper Agent, and click the pin icon.
 
-1. Navigate to any arXiv paper (e.g., `https://arxiv.org/abs/2303.08774`)
-2. Click the Paper Agent icon in the toolbar
+---
+
+### Step 5 — Use it
+
+1. Navigate to any arXiv paper, e.g.:
+   - Abstract page: `https://arxiv.org/abs/2303.08774`
+   - PDF page: `https://arxiv.org/pdf/2303.08774`
+2. Click the **Paper Agent icon** in the Chrome toolbar to open the side panel
 3. Click **Summarize Paper**
+4. The summary streams in, rendered with markdown and LaTeX math
+
+---
+
+### Updating the extension
+
+After pulling new code, reload the extension so Chrome picks up the changes:
+
+1. Go to `chrome://extensions/`
+2. Find Paper Agent and click the **refresh icon** (↺)
+
+No need to re-run `setup.sh` unless `environment.yml` changed.
+
+---
 
 ## Architecture
 
