@@ -7,6 +7,136 @@ let cachedPayload = null;
 // Get UI elements
 const contentDiv = document.getElementById('sidebar-content');
 
+// Add language selector
+const langContainer = document.createElement('div');
+langContainer.className = 'lang-selector';
+
+const langLabel = document.createElement('label');
+langLabel.textContent = 'Language';
+langLabel.htmlFor = 'lang-select';
+
+const langSelect = document.createElement('select');
+langSelect.id = 'lang-select';
+const languages = [
+  { value: 'English', label: 'English' },
+  { value: 'Chinese', label: '中文' },
+];
+for (const lang of languages) {
+  const opt = document.createElement('option');
+  opt.value = lang.value;
+  opt.textContent = lang.label;
+  langSelect.appendChild(opt);
+}
+
+// Restore saved preferences, falling back to server-configured defaults
+(async () => {
+  const stored = await chrome.storage.local.get(['selectedLanguage', 'selectedProvider']);
+
+  // Fetch server config for defaults and provider list
+  let cfg = {};
+  try {
+    const resp = await fetch(`${SERVER_URL}/config`);
+    if (resp.ok) cfg = await resp.json();
+  } catch (_) { /* server not running yet */ }
+
+  // Language
+  if (stored.selectedLanguage) {
+    langSelect.value = stored.selectedLanguage;
+  } else if (cfg.default_language) {
+    langSelect.value = cfg.default_language;
+  }
+
+  // Populate provider dropdown from server
+  const providers = cfg.providers || [];
+  for (const name of providers) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    providerSelect.appendChild(opt);
+  }
+
+  // Restore saved provider or use server default
+  if (stored.selectedProvider && providers.includes(stored.selectedProvider)) {
+    providerSelect.value = stored.selectedProvider;
+  } else if (cfg.default_provider) {
+    providerSelect.value = cfg.default_provider;
+  }
+
+  applyLanguage();
+})();
+// Add provider selector (must be declared before the async IIFE and event listeners reference it)
+const providerContainer = document.createElement('div');
+providerContainer.className = 'lang-selector';
+
+const providerLabel = document.createElement('label');
+providerLabel.textContent = 'Provider';
+providerLabel.htmlFor = 'provider-select';
+
+const providerSelect = document.createElement('select');
+providerSelect.id = 'provider-select';
+
+providerContainer.appendChild(providerLabel);
+providerContainer.appendChild(providerSelect);
+
+langSelect.addEventListener('change', () => {
+  chrome.storage.local.set({ selectedLanguage: langSelect.value });
+  applyLanguage();
+});
+providerSelect.addEventListener('change', () => {
+  chrome.storage.local.set({ selectedProvider: providerSelect.value });
+});
+
+langContainer.appendChild(langLabel);
+langContainer.appendChild(langSelect);
+
+// UI strings per language
+const UI_STRINGS = {
+  English: {
+    title: 'Paper Agent',
+    summarize: 'Summarize Paper',
+    generating: 'Generating summary...',
+    downloading: 'Downloading paper...',
+    downloadingArxiv: (id) => `Downloading arXiv paper ${id}...`,
+    downloadingPdf: 'Downloading PDF...',
+    ready: 'Paper downloaded. Click "Summarize Paper" to generate a summary.',
+    copySummary: 'Copy Summary',
+    regenerate: 'Regenerate Summary',
+    copied: 'Summary copied to clipboard!',
+    language: 'Language',
+    provider: 'Provider',
+    retryDownload: 'Re-download Paper',
+  },
+  Chinese: {
+    title: 'Paper Agent',
+    summarize: '总结论文',
+    generating: '正在生成摘要...',
+    downloading: '正在下载论文...',
+    downloadingArxiv: (id) => `正在下载 arXiv 论文 ${id}...`,
+    downloadingPdf: '正在下载 PDF...',
+    ready: '论文已下载。点击"总结论文"生成摘要。',
+    copySummary: '复制摘要',
+    regenerate: '重新生成摘要',
+    copied: '摘要已复制到剪贴板！',
+    language: '语言',
+    provider: '模型',
+    retryDownload: '重新下载论文',
+  },
+};
+
+function t(key) {
+  return UI_STRINGS[langSelect.value]?.[key] || UI_STRINGS.English[key];
+}
+
+function applyLanguage() {
+  document.querySelector('.sidebar-header h1').textContent = t('title');
+  langLabel.textContent = t('language');
+  providerLabel.textContent = t('provider');
+  if (!extractButton.disabled || extractButton.textContent === t('summarize') ||
+      Object.values(UI_STRINGS).some(s => s.summarize === extractButton.textContent)) {
+    extractButton.textContent = t('summarize');
+  }
+}
+
 // Add summarize button (disabled until download finishes)
 const extractButton = document.createElement('button');
 extractButton.className = 'extract-btn';
@@ -16,6 +146,8 @@ extractButton.addEventListener('click', handleSummarize);
 
 // Add to sidebar
 const header = document.querySelector('.sidebar-header');
+header.appendChild(langContainer);
+header.appendChild(providerContainer);
 header.appendChild(extractButton);
 
 // Auto-download paper on startup; if a cached summary exists, show that instead
@@ -28,26 +160,25 @@ function setButtonState(text) {
 
 function resetButton() {
   extractButton.disabled = !cachedPayload;
-  extractButton.textContent = 'Summarize Paper';
+  extractButton.textContent = t('summarize');
 }
 
-async function handleSummarize() {
+async function handleSummarize(regenerate = false) {
   if (!cachedPayload) return;
-  await summarize(cachedPayload);
+  await summarize(cachedPayload, regenerate);
 }
 
 async function initPanel() {
   // If we already have a cached summary for this URL, show it immediately
   const cached = await loadCachedSummary();
-  if (cached) return;
 
-  // Otherwise, start downloading the paper content
-  await autoDownload();
+  // Always download the paper content so cachedPayload is available for regeneration
+  await autoDownload(cached);
 }
 
-async function autoDownload() {
+async function autoDownload(silent = false) {
   try {
-    showLoading('Downloading paper...');
+    if (!silent) showLoading(t('downloading'));
 
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -71,19 +202,19 @@ async function autoDownload() {
     const response = await chrome.tabs.sendMessage(tab.id, { action: 'extract' });
 
     if (response.type === 'arxiv') {
-      await downloadArxivPaper(response.arxivId);
+      await downloadArxivPaper(response.arxivId, silent);
     } else if (response.type === 'pdf') {
-      await downloadPdfPaper(response.url);
+      await downloadPdfPaper(response.url, silent);
     } else if (response.type === 'text') {
       cachedPayload = { paper_content: response.content };
-      showReady();
+      if (!silent) showReady();
     } else if (response.type === 'error') {
-      showError(response.error);
+      if (!silent) showError(response.error);
     }
 
   } catch (error) {
     console.error('Error extracting:', error);
-    showError(`Failed to extract: ${error.message}\n\nMake sure you're on a regular webpage, not a Chrome internal page.`);
+    if (!silent) showError(`Failed to extract: ${error.message}\n\nMake sure you're on a regular webpage, not a Chrome internal page.`, () => autoDownload());
   }
 }
 
@@ -100,9 +231,9 @@ async function checkServer() {
   return true;
 }
 
-async function downloadArxivPaper(arxivId) {
+async function downloadArxivPaper(arxivId, silent = false) {
   try {
-    showLoading(`Downloading arXiv paper ${arxivId}...`);
+    if (!silent) showLoading(UI_STRINGS[langSelect.value]?.downloadingArxiv(arxivId) || UI_STRINGS.English.downloadingArxiv(arxivId));
 
     if (!await checkServer()) return;
 
@@ -121,20 +252,20 @@ async function downloadArxivPaper(arxivId) {
 
     if (data.success) {
       cachedPayload = { paper_content: data.content };
-      showReady();
+      if (!silent) showReady();
     } else {
-      showError(`Failed to process paper: ${data.error}`);
+      if (!silent) showError(`Failed to process paper: ${data.error}`, () => downloadArxivPaper(arxivId));
     }
 
   } catch (error) {
     console.error('Error processing arXiv paper:', error);
-    showError(`Failed to process arXiv paper: ${error.message}`);
+    if (!silent) showError(`Failed to process arXiv paper: ${error.message}`, () => downloadArxivPaper(arxivId));
   }
 }
 
-async function downloadPdfPaper(url) {
+async function downloadPdfPaper(url, silent = false) {
   try {
-    showLoading('Downloading PDF...');
+    if (!silent) showLoading(t('downloadingPdf'));
 
     if (!await checkServer()) return;
 
@@ -148,35 +279,38 @@ async function downloadPdfPaper(url) {
 
     if (data.success) {
       cachedPayload = { pdf_cache_key: data.pdf_id };
-      showReady();
+      if (!silent) showReady();
     } else {
-      showError(`Failed to download PDF: ${data.error}`);
+      if (!silent) showError(`Failed to download PDF: ${data.error}`, () => downloadPdfPaper(url));
     }
 
   } catch (error) {
     console.error('Error processing PDF:', error);
-    showError(`Failed to process PDF: ${error.message}`);
+    if (!silent) showError(`Failed to process PDF: ${error.message}`, () => downloadPdfPaper(url));
   }
 }
 
 function showReady() {
   extractButton.disabled = false;
-  contentDiv.innerHTML = '<p class="empty-state">Paper downloaded. Click "Summarize Paper" to generate a summary.</p>';
+  contentDiv.innerHTML = `<p class="empty-state">${escapeHtml(t('ready'))}</p>`;
 }
 
-async function summarize(payload) {
-  setButtonState('Generating summary...');
-  showLoading('Generating summary...');
+async function summarize(payload, regenerate = false) {
+  setButtonState(t('generating'));
+  showLoading(t('generating'));
 
   const resultDiv = document.createElement('div');
   resultDiv.id = 'llm-result';
   resultDiv.className = 'llm-result';
 
   try {
+    const body = { skill: 'summarize', language: langSelect.value, provider: providerSelect.value, ...payload };
+    if (regenerate) body.regenerate = true;
+
     const response = await fetch(`${SERVER_URL}/llm-skill-stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ skill: 'summarize', ...payload }),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -214,21 +348,32 @@ async function summarize(payload) {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab?.url) {
-        const key = getCacheKey(tab.url);
+        const key = getCacheKey(tab.url, langSelect.value);
         await cacheSummary(key, fullText);
       }
     } catch (e) {
       console.log('Failed to cache summary:', e.message);
     }
 
+    const btnRow = document.createElement('div');
+    btnRow.className = 'action-btn-row';
+
     const copyBtn = document.createElement('button');
     copyBtn.className = 'action-btn';
-    copyBtn.textContent = 'Copy Summary';
+    copyBtn.textContent = t('copySummary');
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(fullText);
-      showNotification('Summary copied to clipboard!');
+      showNotification(t('copied'));
     });
-    resultDiv.appendChild(copyBtn);
+    btnRow.appendChild(copyBtn);
+
+    const regenBtn = document.createElement('button');
+    regenBtn.className = 'action-btn action-btn-secondary';
+    regenBtn.textContent = t('regenerate');
+    regenBtn.addEventListener('click', () => handleSummarize(true));
+    btnRow.appendChild(regenBtn);
+
+    resultDiv.appendChild(btnRow);
 
   } catch (error) {
     showError(`Summarization failed: ${error.message}`);
@@ -237,11 +382,12 @@ async function summarize(payload) {
   }
 }
 
-function getCacheKey(url) {
+function getCacheKey(url, language) {
+  const lang = (language || 'English').trim().toLowerCase();
   // Normalize arxiv URLs so /abs/ and /pdf/ share the same key
   const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d+\.\d+)/);
-  if (arxivMatch) return `summary:arxiv:${arxivMatch[1]}`;
-  return `summary:${url}`;
+  if (arxivMatch) return `summary:arxiv:${arxivMatch[1]}:${lang}`;
+  return `summary:${url}:${lang}`;
 }
 
 const CACHE_MAX = 10;
@@ -273,7 +419,7 @@ async function loadCachedSummary() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.url) return false;
-    const key = getCacheKey(tab.url);
+    const key = getCacheKey(tab.url, langSelect.value);
     const result = await chrome.storage.local.get(key);
     if (result[key]) {
       displaySummary(result[key]);
@@ -296,14 +442,25 @@ function displaySummary(text) {
   const mdDiv = resultDiv.querySelector('.llm-text');
   renderMd(mdDiv, text);
 
+  const btnRow = document.createElement('div');
+  btnRow.className = 'action-btn-row';
+
   const copyBtn = document.createElement('button');
   copyBtn.className = 'action-btn';
-  copyBtn.textContent = 'Copy Summary';
+  copyBtn.textContent = t('copySummary');
   copyBtn.addEventListener('click', () => {
     navigator.clipboard.writeText(text);
-    showNotification('Summary copied to clipboard!');
+    showNotification(t('copied'));
   });
-  resultDiv.appendChild(copyBtn);
+  btnRow.appendChild(copyBtn);
+
+  const regenBtn = document.createElement('button');
+  regenBtn.className = 'action-btn action-btn-secondary';
+  regenBtn.textContent = t('regenerate');
+  regenBtn.addEventListener('click', () => handleSummarize(true));
+  btnRow.appendChild(regenBtn);
+
+  resultDiv.appendChild(btnRow);
 }
 
 function showLoading(message) {
@@ -315,13 +472,20 @@ function showLoading(message) {
   `;
 }
 
-function showError(message) {
+function showError(message, retryFn) {
   contentDiv.innerHTML = `
     <div class="error">
       <h3>⚠️ Error</h3>
       <pre>${escapeHtml(message)}</pre>
     </div>
   `;
+  if (retryFn) {
+    const retryBtn = document.createElement('button');
+    retryBtn.className = 'action-btn retry-btn';
+    retryBtn.textContent = t('retryDownload');
+    retryBtn.addEventListener('click', retryFn);
+    contentDiv.querySelector('.error').appendChild(retryBtn);
+  }
 }
 
 function showNotification(message) {

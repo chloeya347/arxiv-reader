@@ -19,7 +19,7 @@ from flask_cors import CORS
 from arxiv_to_prompt import process_latex_source
 
 from prompts import get_prompt, list_skills
-from llm import get_provider
+from llm import get_provider, list_providers
 from llm.base import count_tokens, TokenLimitExceeded, TOKEN_LIMIT
 
 app = Flask(__name__)
@@ -28,7 +28,7 @@ CORS(app)  # Allow requests from Chrome extension
 CACHE_DIR = os.path.expanduser("~/.cache/arxiv-to-prompt")
 PDF_CACHE_DIR = os.path.expanduser("~/.cache/paperagent/pdfs")
 SUMMARY_CACHE_DIR = os.path.expanduser("~/.cache/paperagent/summaries")
-CACHE_MAX_AGE_DAYS = 0.5
+CACHE_MAX_AGE_DAYS = 3
 SUMMARY_CACHE_MAX_AGE_DAYS = 30
 
 def clean_old_cache():
@@ -45,7 +45,7 @@ def clean_old_cache():
                     os.remove(entry.path)
 
 def _summary_cache_path(skill_name: str, data: dict) -> str | None:
-    """Return the cache file path for a skill + paper combination."""
+    """Return the cache file path for a skill + paper + language combination."""
     paper_content = data.get("paper_content")
     pdf_cache_key = data.get("pdf_cache_key")
     if paper_content:
@@ -54,9 +54,11 @@ def _summary_cache_path(skill_name: str, data: dict) -> str | None:
         content_id = pdf_cache_key
     else:
         return None
-    key = hashlib.sha256(f"{skill_name}::{content_id}".encode()).hexdigest()[:16]
-    os.makedirs(SUMMARY_CACHE_DIR, exist_ok=True)
-    return os.path.join(SUMMARY_CACHE_DIR, f"{key}.txt")
+    language = (data.get("language") or "English").strip().lower()
+    key = hashlib.sha256(f"{skill_name}::{content_id}::{language}".encode()).hexdigest()[:16]
+    lang_dir = os.path.join(SUMMARY_CACHE_DIR, language)
+    os.makedirs(lang_dir, exist_ok=True)
+    return os.path.join(lang_dir, f"{key}.txt")
 
 
 def _read_summary_cache(path: str | None) -> str | None:
@@ -225,12 +227,14 @@ def llm_skill():
             return jsonify({'success': False, 'error': 'skill is required'}), 400
 
         cache_path = _summary_cache_path(skill_name, data)
-        cached = _read_summary_cache(cache_path)
-        if cached:
-            return jsonify({'success': True, 'result': cached, 'cached': True})
+        if not data.get('regenerate'):
+            cached = _read_summary_cache(cache_path)
+            if cached:
+                return jsonify({'success': True, 'result': cached, 'cached': True})
 
         prompt_kwargs = _resolve_prompt_kwargs(data)
-        prompt = get_prompt(skill_name, **prompt_kwargs)
+        language = data.get('language')
+        prompt = get_prompt(skill_name, language=language, **prompt_kwargs)
 
         n_tokens = count_tokens(prompt["user"])
         if prompt.get("system"):
@@ -238,7 +242,7 @@ def llm_skill():
         if n_tokens > TOKEN_LIMIT:
             raise TokenLimitExceeded(n_tokens)
 
-        provider = get_provider()
+        provider = get_provider(data.get('provider'))
         result = provider.complete(system=prompt["system"], user=prompt["user"])
         _write_summary_cache(cache_path, result)
 
@@ -269,15 +273,17 @@ def llm_skill_stream():
             return jsonify({'success': False, 'error': 'skill is required'}), 400
 
         cache_path = _summary_cache_path(skill_name, data)
-        cached = _read_summary_cache(cache_path)
-        if cached:
-            def generate_cached():
-                yield f"data: {json.dumps({'chunk': cached})}\n\n"
-                yield f"data: {json.dumps({'done': True, 'cached': True})}\n\n"
-            return Response(generate_cached(), mimetype='text/event-stream')
+        if not data.get('regenerate'):
+            cached = _read_summary_cache(cache_path)
+            if cached:
+                def generate_cached():
+                    yield f"data: {json.dumps({'chunk': cached})}\n\n"
+                    yield f"data: {json.dumps({'done': True, 'cached': True})}\n\n"
+                return Response(generate_cached(), mimetype='text/event-stream')
 
         prompt_kwargs = _resolve_prompt_kwargs(data)
-        prompt = get_prompt(skill_name, **prompt_kwargs)
+        language = data.get('language')
+        prompt = get_prompt(skill_name, language=language, **prompt_kwargs)
 
         n_tokens = count_tokens(prompt["user"])
         if prompt.get("system"):
@@ -285,7 +291,7 @@ def llm_skill_stream():
         if n_tokens > TOKEN_LIMIT:
             raise TokenLimitExceeded(n_tokens)
 
-        provider = get_provider()
+        provider = get_provider(data.get('provider'))
 
         def generate():
             accumulated = []
@@ -304,6 +310,16 @@ def llm_skill_stream():
         return jsonify({'success': False, 'error': str(e)}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/config', methods=['GET'])
+def config():
+    """Return server configuration relevant to the frontend."""
+    return jsonify({
+        'default_language': os.environ.get('LANGUAGE', 'English').strip(),
+        'default_provider': os.environ.get('LLM_PROVIDER', 'anthropic').strip().lower(),
+        'providers': list_providers(),
+    })
 
 
 @app.route('/health', methods=['GET'])

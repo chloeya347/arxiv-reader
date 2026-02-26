@@ -26,3 +26,4 @@ summaries/
 # Claude Code
 .claude/
 .claudeignore
+CLAUDE.md
