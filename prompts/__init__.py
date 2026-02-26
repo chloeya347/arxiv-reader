@@ -29,8 +29,12 @@ def register(name: str, *, builder, description: str = "", system: str | None = 
     }
 
 
-def get_prompt(name: str, **kwargs) -> dict:
+def get_prompt(name: str, *, language: str | None = None, **kwargs) -> dict:
     """Look up a skill and build the prompt messages.
+
+    Args:
+        name: Skill identifier.
+        language: Override output language. Falls back to the LANGUAGE env var.
 
     Returns:
         {"system": str | None, "user": str | list[dict]}
@@ -45,7 +49,7 @@ def get_prompt(name: str, **kwargs) -> dict:
     user_content = entry["builder"](**kwargs)
     system = entry["system"]
 
-    lang = os.environ.get("LANGUAGE", "").strip()
+    lang = (language or os.environ.get("LANGUAGE", "")).strip()
     if system and lang and lang.lower() != "english":
         system += f"\n\nIMPORTANT: You MUST write your entire response in {lang}."
 
