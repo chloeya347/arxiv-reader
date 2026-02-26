@@ -49,8 +49,8 @@ def get_prompt(name: str, *, language: str | None = None, **kwargs) -> dict:
     user_content = entry["builder"](**kwargs)
     system = entry["system"]
 
-    lang = (language or os.environ.get("LANGUAGE", "")).strip()
-    if system and lang and lang.lower() != "english":
+    lang = (language or os.environ.get("LANGUAGE", "English")).strip()
+    if system and lang:
         system += f"\n\nIMPORTANT: You MUST write your entire response in {lang}."
 
     return {

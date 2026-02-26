@@ -1,13 +1,9 @@
 """Summarize skill: produces a structured, section-by-section paper summary."""
 
-import os
-
 from prompts import register
 
-_LANGUAGE = os.getenv("LANGUAGE", "English")
-
 _SYSTEM_PROMPT = (
-f"""
+"""
 You are a research paper analysis assistant specializing in computer science,
 robotics, and artificial intelligence. You produce clear, concise summaries
 aimed at senior undergraduates and early graduate students. Use field terminology,
@@ -65,7 +61,7 @@ Break the method into logical "Stages." For each stage:
 - Use LaTeX only for complex formulas.
 - No "filler" phrases (e.g., "The authors conclude...").
 - Every equation must be followed by an intuitive decomposition. Never present an equation without explanation.
-- You MUST write your ENTIRE response in {_LANGUAGE}.
+- Start your response DIRECTLY with the first section heading ("## 1. Introduction & Background"). Do NOT include any preamble, acknowledgment, or introductory sentence before the first heading.
 """)
 
 _INSTRUCTIONS = (
