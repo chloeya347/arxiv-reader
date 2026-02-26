@@ -61,7 +61,7 @@ Break the method into logical "Stages." For each stage:
 - Use LaTeX only for complex formulas.
 - No "filler" phrases (e.g., "The authors conclude...").
 - Every equation must be followed by an intuitive decomposition. Never present an equation without explanation.
-- Start your response DIRECTLY with the first section heading ("## 1. Introduction & Background"). Do NOT include any preamble, acknowledgment, or introductory sentence before the first heading.
+- Start your response DIRECTLY with the title then the first section heading. Do NOT include any preamble, acknowledgment, or introductory sentence before the first heading.
 """)
 
 _INSTRUCTIONS = (
